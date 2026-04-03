@@ -8,6 +8,8 @@ app.use(express.json({ limit: "20mb" }));
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+app.get("/", (req, res) => res.json({ status: "ok" }));
+
 app.post("/api/analyze", async (req, res) => {
   const { base64, mediaType } = req.body;
   if (!base64 || !mediaType) return res.status(400).json({ error: "Faltan datos" });
@@ -28,4 +30,13 @@ app.post("/api/analyze", async (req, res) => {
         ]
       }]
     });
-    const
+    const txt = msg.content?.find(c => c.type === "text")?.text || "";
+    const parsed = JSON.parse(txt.replace(/```json|```/g, "").trim());
+    res.json(parsed);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => console.log(`Backend corriendo en puerto ${PORT}`));
