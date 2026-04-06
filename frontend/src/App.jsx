@@ -214,11 +214,11 @@ export default function App() {
           <div style={{marginTop:12}}>
             <label style={{fontSize:12,color:"#666",display:"block",marginBottom:6}}>Adjuntar factura o resumen (PDF o imagen)</label>
             <input ref={fileRef} type="file" accept=".pdf,image/*" onChange={handleFile} style={{display:"none"}}/>
-            <button onClick={()=>fileRef.current.click()} style={{fontSize:13,padding:"6px 14px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:8,cursor:"pointer"}}>
+            <button onClick={()=>fileRef.current.click()} disabled={aiLoading} style={{fontSize:13,padding:"6px 14px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:8,cursor:"pointer"}}>
               {form.fileName?`📎 ${form.fileName}`:"📎 Subir archivo"}
             </button>
-            {aiLoading && <span style={{fontSize:12,color:"#666",marginLeft:12}}>⏳ Analizando con IA...</span>}
-            {aiResult&&!aiLoading && <span style={{fontSize:12,color:"#1d9e75",marginLeft:12}}>✓ {aiResult}</span>}
+            {aiLoading && <span style={{fontSize:12,color:"#3266ad",marginLeft:12}}>⏳ {aiResult}</span>}
+            {!aiLoading && aiResult && <span style={{fontSize:12,color: aiResult.startsWith("✓") ? "#1d9e75" : "#e24b4a",marginLeft:12}}>{aiResult}</span>}
           </div>
           <div style={{display:"flex",gap:8,marginTop:"1rem"}}>
             <button onClick={handleSubmit} style={{padding:"8px 20px",background:"#3266ad",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:14,fontWeight:500}}>{editId?"Guardar cambios":"Agregar gasto"}</button>
