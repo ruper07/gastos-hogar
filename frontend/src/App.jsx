@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabase.js";
 
 const CATEGORIES = {
   hogar: { label:"Hogar", icon:"🏠", color:"#3266ad", subcats:["Luz","Gas","Agua","Internet","TV Streaming","Impuesto Municipal","Impuesto Provincial","Seguro Hogar","Vigilancia","Monitoreo de Puerta","Otros"] },
@@ -22,9 +23,43 @@ const badgeStyle = (pagado) => ({
   whiteSpace:"nowrap"
 });
 
+function Login({ onLogin }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError("Email o contraseña incorrectos");
+    setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#f5f5f5"}}>
+      <div style={{background:"#fff",borderRadius:16,padding:"2rem",width:340,boxShadow:"0 2px 16px rgba(0,0,0,0.08)"}}>
+        <h1 style={{fontSize:22,fontWeight:500,margin:"0 0 4px"}}>Gastos del Hogar</h1>
+        <p style={{fontSize:13,color:"#666",margin:"0 0 1.5rem"}}>Ingresá con tu cuenta</p>
+        <label style={{fontSize:12,color:"#666",display:"block",marginBottom:4}}>Email</label>
+        <input type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="tu@email.com" style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #ddd",fontSize:14,marginBottom:12,boxSizing:"border-box"}}/>
+        <label style={{fontSize:12,color:"#666",display:"block",marginBottom:4}}>Contraseña</label>
+        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&handleLogin()} style={{width:"100%",padding:"8px 12px",borderRadius:8,border:"1px solid #ddd",fontSize:14,marginBottom:16,boxSizing:"border-box"}}/>
+        {error && <p style={{fontSize:12,color:"#e24b4a",margin:"0 0 12px"}}>{error}</p>}
+        <button onClick={handleLogin} disabled={loading} style={{width:"100%",padding:"10px",background:"#3266ad",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:14,fontWeight:500}}>
+          {loading ? "Ingresando..." : "Ingresar"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  const [session, setSession] = useState(null);
+  const [loadingSession, setLoadingSession] = useState(true);
   const [tab, setTab] = useState("Dashboard");
   const [expenses, setExpenses] = useState([]);
+  const [loadingData, setLoadingData] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [form, setForm] = useState({category:"hogar",subcat:"Luz",amount:"",date:new Date().toISOString().slice(0,10),desc:"",dueDate:"",recurring:false,fileName:"",medio:"Transferencia",pagado:false});
@@ -38,21 +73,38 @@ export default function App() {
   const fileRef = useRef();
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("gastos_hogar_v1");
-      if (saved) setExpenses(JSON.parse(saved));
-    } catch {}
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session); setLoadingSession(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
   }, []);
 
-  const setAndSave = (fn) => {
-    setExpenses(prev => {
-      const next = typeof fn === "function" ? fn(prev) : fn;
-      try { localStorage.setItem("gastos_hogar_v1", JSON.stringify(next)); } catch {}
-      return next;
-    });
+  useEffect(() => {
+    if (session) loadExpenses();
+  }, [session]);
+
+  const loadExpenses = async () => {
+    setLoadingData(true);
+    const { data, error } = await supabase.from("gastos").select("*").order("created_at", { ascending: false });
+    if (!error && data) {
+      setExpenses(data.map(e => ({
+        id: String(e.id), category: e.category, subcat: e.subcat,
+        amount: e.amount, date: e.date, dueDate: e.due_date,
+        desc: e.desc, medio: e.medio, pagado: e.pagado,
+        recurring: e.recurring, fileName: e.file_name
+      })));
+    }
+    setLoadingData(false);
   };
 
-  const togglePagado = (id) => setAndSave(p => p.map(e => e.id===id ? {...e, pagado:!e.pagado} : e));
+  const togglePagado = async (id) => {
+    const e = expenses.find(x => x.id === id);
+    await supabase.from("gastos").update({ pagado: !e.pagado }).eq("id", id);
+    setExpenses(p => p.map(x => x.id === id ? {...x, pagado: !x.pagado} : x));
+  };
 
   const wakeBackend = async () => {
     try { await fetch(`${API_URL}/`); } catch {}
@@ -73,49 +125,52 @@ export default function App() {
           try {
             setAiResult(`Analizando archivo... (intento ${intento}/3)`);
             const resp = await fetch(`${API_URL}/api/analyze`, {
-              method:"POST",
-              headers:{"Content-Type":"application/json"},
+              method:"POST", headers:{"Content-Type":"application/json"},
               body: JSON.stringify({ base64: b64, mediaType: f.type }),
               signal: AbortSignal.timeout(60000)
             });
-            parsed = await resp.json();
-            break;
-          } catch {
-            if (intento < 3) await new Promise(r => setTimeout(r, 3000));
-          }
+            parsed = await resp.json(); break;
+          } catch { if (intento < 3) await new Promise(r => setTimeout(r, 3000)); }
         }
         if (parsed && !parsed.error) {
           setAiResult("✓ " + (parsed.descripcion || "Archivo procesado"));
           setForm(prev=>({...prev,
             amount: parsed.monto ? String(parsed.monto) : prev.amount,
-            date: parsed.fecha || prev.date,
-            dueDate: parsed.vencimiento || prev.dueDate,
-            desc: parsed.descripcion || prev.desc,
-            subcat: parsed.categoria_sugerida || prev.subcat,
+            date: parsed.fecha || prev.date, dueDate: parsed.vencimiento || prev.dueDate,
+            desc: parsed.descripcion || prev.desc, subcat: parsed.categoria_sugerida || prev.subcat,
             category: parsed.foco_sugerido || prev.category,
           }));
-        } else {
-          setAiResult("No se pudo extraer datos. Completá manualmente.");
-        }
-      } catch { setAiResult("Error procesando el archivo. Completá manualmente."); }
+        } else { setAiResult("No se pudo extraer datos. Completá manualmente."); }
+      } catch { setAiResult("Error procesando el archivo."); }
       setAiLoading(false);
     }
   };
 
-  const handleSubmit = () => {
-    if (!form.amount||!form.date) return;
+  const handleSubmit = async () => {
+    if (!form.amount || !form.date) return;
+    const row = {
+      category: form.category, subcat: form.subcat, amount: parseFloat(form.amount),
+      date: form.date, due_date: form.dueDate || null, desc: form.desc,
+      medio: form.medio, pagado: form.pagado, recurring: form.recurring, file_name: form.fileName
+    };
     if (editId) {
-      setAndSave(p=>p.map(e=>e.id===editId?{...form,id:editId,amount:parseFloat(form.amount)}:e));
+      await supabase.from("gastos").update(row).eq("id", editId);
+      setExpenses(p => p.map(e => e.id === editId ? {...form, id: editId, amount: parseFloat(form.amount)} : e));
       setEditId(null);
     } else {
-      setAndSave(p=>[...p,{...form,id:genId(),amount:parseFloat(form.amount)}]);
+      const { data } = await supabase.from("gastos").insert(row).select();
+      if (data?.[0]) setExpenses(p => [{...form, id: String(data[0].id), amount: parseFloat(form.amount)}, ...p]);
     }
     setForm({category:"hogar",subcat:"Luz",amount:"",date:new Date().toISOString().slice(0,10),desc:"",dueDate:"",recurring:false,fileName:"",medio:"Transferencia",pagado:false});
     setAiResult(""); setShowForm(false);
   };
 
-  const del = (id) => setAndSave(p=>p.filter(e=>e.id!==id));
-  const edit = (e) => { setForm({...e,amount:String(e.amount)}); setEditId(e.id); setShowForm(true); };
+  const del = async (id) => {
+    await supabase.from("gastos").delete().eq("id", id);
+    setExpenses(p => p.filter(e => e.id !== id));
+  };
+
+  const edit = (e) => { setForm({...e, amount: String(e.amount)}); setEditId(e.id); setShowForm(true); };
 
   const filtered = expenses.filter(e => {
     const mc = filterCat==="all"||e.category===filterCat;
@@ -136,8 +191,8 @@ export default function App() {
   };
 
   const exportExcel = () => {
-    const rows=[["ID","Foco","Subcategoría","Descripción","Monto","Fecha","Vencimiento","Medio de Pago","Estado","Recurrente","Archivo"]];
-    expenses.forEach(e=>rows.push([e.id,CATEGORIES[e.category]?.label,e.subcat,e.desc,e.amount,e.date,e.dueDate,e.medio,e.pagado?"Pagado":"Pendiente",e.recurring?"Sí":"No",e.fileName]));
+    const rows=[["ID","Foco","Subcategoría","Descripción","Monto","Fecha","Vencimiento","Medio de Pago","Estado","Recurrente"]];
+    expenses.forEach(e=>rows.push([e.id,CATEGORIES[e.category]?.label,e.subcat,e.desc,e.amount,e.date,e.dueDate,e.medio,e.pagado?"Pagado":"Pendiente",e.recurring?"Sí":"No"]));
     const csv=rows.map(r=>r.map(c=>`"${c||""}"`).join(",")).join("\n");
     const blob=new Blob(["\uFEFF"+csv],{type:"text/csv;charset=utf-8;"});
     const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="gastos_hogar.csv"; a.click();
@@ -159,15 +214,19 @@ export default function App() {
     return Object.entries(map).sort(([,a],[,b])=>b-a).slice(0,8);
   };
 
+  if (loadingSession) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",fontSize:14,color:"#666"}}>Cargando...</div>;
+  if (!session) return <Login />;
+
   return (
     <div style={{fontFamily:"system-ui,sans-serif",maxWidth:920,margin:"0 auto",padding:"1rem",color:"#1a1a1a"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"1.5rem",flexWrap:"wrap",gap:8}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:500,margin:0}}>Gastos del Hogar</h1>
-          <p style={{fontSize:12,color:"#666",margin:"2px 0 0"}}>Panel familiar</p>
+          <p style={{fontSize:12,color:"#666",margin:"2px 0 0"}}>{session.user.email}</p>
         </div>
         <div style={{display:"flex",gap:8}}>
-          <button onClick={exportExcel} style={{fontSize:13,padding:"6px 14px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:8,cursor:"pointer"}}>↓ Exportar Excel</button>
+          <button onClick={exportExcel} style={{fontSize:13,padding:"6px 14px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:8,cursor:"pointer"}}>↓ Excel</button>
+          <button onClick={()=>supabase.auth.signOut()} style={{fontSize:13,padding:"6px 14px",background:"#f5f5f5",border:"1px solid #ddd",borderRadius:8,cursor:"pointer"}}>Salir</button>
           <button onClick={()=>{setShowForm(true);setEditId(null);setAiResult("");setForm({category:"hogar",subcat:"Luz",amount:"",date:new Date().toISOString().slice(0,10),desc:"",dueDate:"",recurring:false,fileName:"",medio:"Transferencia",pagado:false});}} style={{fontSize:13,padding:"6px 14px",background:"#3266ad",border:"none",borderRadius:8,cursor:"pointer",color:"#fff",fontWeight:500}}>+ Nuevo Gasto</button>
         </div>
       </div>
@@ -179,7 +238,7 @@ export default function App() {
       </div>
 
       {showForm && (
-        <div style={{background:"#fff",border:"1px solid #e0e0e0",borderRadius:12,padding:"1.25rem",marginBottom:"1.5rem",boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
+        <div style={{background:"#fff",border:"1px solid #e0e0e0",borderRadius:12,padding:"1.25rem",marginBottom:"1.5rem"}}>
           <h3 style={{margin:"0 0 1rem",fontSize:16,fontWeight:500}}>{editId?"Editar gasto":"Nuevo gasto"}</h3>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
             {[["Foco","select-cat"],["Categoría","select-sub"],["Monto ($)","amount"],["Fecha de pago","date"],["Fecha de vencimiento","dueDate"],["Descripción","desc"],["Medio de pago","select-medio"],["Estado","select-pagado"]].map(([lbl,field])=>(
@@ -218,7 +277,7 @@ export default function App() {
               {form.fileName?`📎 ${form.fileName}`:"📎 Subir archivo"}
             </button>
             {aiLoading && <span style={{fontSize:12,color:"#3266ad",marginLeft:12}}>⏳ {aiResult}</span>}
-            {!aiLoading && aiResult && <span style={{fontSize:12,color: aiResult.startsWith("✓") ? "#1d9e75" : "#e24b4a",marginLeft:12}}>{aiResult}</span>}
+            {!aiLoading && aiResult && <span style={{fontSize:12,color:aiResult.startsWith("✓")?"#1d9e75":"#e24b4a",marginLeft:12}}>{aiResult}</span>}
           </div>
           <div style={{display:"flex",gap:8,marginTop:"1rem"}}>
             <button onClick={handleSubmit} style={{padding:"8px 20px",background:"#3266ad",color:"#fff",border:"none",borderRadius:8,cursor:"pointer",fontSize:14,fontWeight:500}}>{editId?"Guardar cambios":"Agregar gasto"}</button>
@@ -325,7 +384,8 @@ export default function App() {
               <option value="pendiente">Solo pendientes</option>
             </select>
           </div>
-          {filtered.length===0
+          {loadingData ? <p style={{textAlign:"center",color:"#999",fontSize:14}}>Cargando gastos...</p>
+          : filtered.length===0
             ? <div style={{textAlign:"center",padding:"3rem",color:"#999",fontSize:14}}>No hay gastos que coincidan.</div>
             : <div style={{display:"flex",flexDirection:"column",gap:6}}>
                 {filtered.sort((a,b)=>b.date?.localeCompare(a.date)).map(e=>{
@@ -340,7 +400,6 @@ export default function App() {
                             <span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:cat?.color+"22",color:cat?.color}}>{cat?.label}</span>
                             <span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:"#f5f5f5",color:"#666"}}>{e.medio||"—"}</span>
                             {e.recurring&&<span style={{fontSize:11,padding:"2px 7px",borderRadius:20,background:"#3266ad22",color:"#185fa5"}}>Recurrente</span>}
-                            {e.fileName&&<span style={{fontSize:11,color:"#999"}}>📎</span>}
                           </div>
                           <div style={{fontSize:11,color:"#999",marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.desc||"—"} · {e.date}{e.dueDate?` · Vence: ${e.dueDate}`:""}</div>
                         </div>
