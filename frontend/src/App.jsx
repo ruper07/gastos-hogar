@@ -54,30 +54,50 @@ export default function App() {
 
   const togglePagado = (id) => setAndSave(p => p.map(e => e.id===id ? {...e, pagado:!e.pagado} : e));
 
+  const wakeBackend = async () => {
+    try { await fetch(`${API_URL}/`); } catch {}
+  };
+
   const handleFile = async (e) => {
     const f = e.target.files[0];
     if (!f) return;
     setForm(p=>({...p,fileName:f.name}));
     if (f.type==="application/pdf" || f.type.startsWith("image/")) {
-      setAiLoading(true); setAiResult("");
+      setAiLoading(true); setAiResult("Despertando servidor...");
+      await wakeBackend();
+      setAiResult("Analizando archivo con IA...");
       try {
         const b64 = await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(r.result.split(",")[1]); r.onerror=rej; r.readAsDataURL(f); });
-        const resp = await fetch(`${API_URL}/api/analyze`, {
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({ base64: b64, mediaType: f.type })
-        });
-        const parsed = await resp.json();
-        setAiResult(parsed.descripcion || "Archivo procesado");
-        setForm(prev=>({...prev,
-          amount: parsed.monto ? String(parsed.monto) : prev.amount,
-          date: parsed.fecha || prev.date,
-          dueDate: parsed.vencimiento || prev.dueDate,
-          desc: parsed.descripcion || prev.desc,
-          subcat: parsed.categoria_sugerida || prev.subcat,
-          category: parsed.foco_sugerido || prev.category,
-        }));
-      } catch { setAiResult("Error procesando el archivo."); }
+        let parsed = null;
+        for (let intento = 1; intento <= 3; intento++) {
+          try {
+            setAiResult(`Analizando archivo... (intento ${intento}/3)`);
+            const resp = await fetch(`${API_URL}/api/analyze`, {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body: JSON.stringify({ base64: b64, mediaType: f.type }),
+              signal: AbortSignal.timeout(60000)
+            });
+            parsed = await resp.json();
+            break;
+          } catch {
+            if (intento < 3) await new Promise(r => setTimeout(r, 3000));
+          }
+        }
+        if (parsed && !parsed.error) {
+          setAiResult("✓ " + (parsed.descripcion || "Archivo procesado"));
+          setForm(prev=>({...prev,
+            amount: parsed.monto ? String(parsed.monto) : prev.amount,
+            date: parsed.fecha || prev.date,
+            dueDate: parsed.vencimiento || prev.dueDate,
+            desc: parsed.descripcion || prev.desc,
+            subcat: parsed.categoria_sugerida || prev.subcat,
+            category: parsed.foco_sugerido || prev.category,
+          }));
+        } else {
+          setAiResult("No se pudo extraer datos. Completá manualmente.");
+        }
+      } catch { setAiResult("Error procesando el archivo. Completá manualmente."); }
       setAiLoading(false);
     }
   };
