@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { supabase } from "./supabase.js";
 
 const DEFAULT_CATEGORIES = {
@@ -161,46 +161,87 @@ function CategoryEditor({ categories, onClose, onSave }) {
   );
 }
 
+const SUBCAT_COLORS = [
+  "#3266ad","#d85a30","#1d9e75","#9b59b6","#e67e22","#2ecc71",
+  "#e74c3c","#1abc9c","#f39c12","#8e44ad","#16a085","#c0392b"
+];
+
 function MisGraficos({ expenses, categories }) {
   const [charts, setCharts] = useState([]);
   const chartRefs = useRef({});
   const chartInstances = useRef({});
   const idCount = useRef(0);
+
   const MONTHS = [...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().slice(-6);
   const COLORS = Object.fromEntries(Object.entries(categories).map(([k,v])=>[k,v.color]));
   const LABELS = Object.fromEntries(Object.entries(categories).map(([k,v])=>[k,v.label]));
+
+  const allSubcats = [...new Set(expenses.map(e=>e.subcat))].sort();
+  const subcatColor = (sub) => SUBCAT_COLORS[allSubcats.indexOf(sub) % SUBCAT_COLORS.length];
+
   const fmtKLocal = (v) => { if(v>=1000000) return "$"+(v/1000000).toFixed(1)+"M"; if(v>=1000) return "$"+(v/1000).toFixed(0)+"k"; return "$"+Math.round(v); };
   const fmtLocal = (v) => "$ "+Math.round(v).toLocaleString("es-AR");
+
   const getData = (cat,m) => expenses.filter(e=>e.category===cat&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
+  const getSubcatData = (sub,m) => expenses.filter(e=>e.subcat===sub&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
+
   const TIPOS = { stack:"Barras apiladas", line:"Líneas", pie:"Torta acumulada", group:"Barras agrupadas" };
+
+  const allSubcatsByFoco = Object.fromEntries(
+    Object.entries(categories).map(([k,v])=>[
+      k,
+      [...new Set(expenses.filter(e=>e.category===k).map(e=>e.subcat))].sort()
+    ])
+  );
 
   useEffect(()=>{
     charts.forEach(ch=>{
       const canvas = chartRefs.current[ch.id];
       if(!canvas||!window.Chart) return;
       if(chartInstances.current[ch.id]) chartInstances.current[ch.id].destroy();
-      const focos = ch.focos||Object.keys(categories);
       const months = MONTHS;
+      const isBySubcat = ch.mode==="subcat";
       let cfg;
-      if(ch.type==="stack") {
-        cfg={type:"bar",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),backgroundColor:COLORS[k],stack:"s",borderRadius:2}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,ticks:{autoSkip:false}},y:{stacked:true,ticks:{callback:fmtKLocal}}}}};
-      } else if(ch.type==="line") {
-        cfg={type:"line",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),borderColor:COLORS[k],backgroundColor:COLORS[k]+"22",fill:true,tension:0.35,pointRadius:4}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false}},y:{ticks:{callback:fmtKLocal}}}}};
-      } else if(ch.type==="pie") {
-        const tots=focos.map(k=>expenses.filter(e=>e.category===k).reduce((s,e)=>s+e.amount,0));
-        const total=tots.reduce((a,b)=>a+b,0);
-        cfg={type:"doughnut",data:{labels:focos.map(k=>LABELS[k]),datasets:[{data:tots,backgroundColor:focos.map(k=>COLORS[k]),borderWidth:3,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${fmtLocal(c.raw)} (${Math.round(c.raw/(total||1)*100)}%)`}}}}};
-      } else if(ch.type==="group") {
-        cfg={type:"bar",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),backgroundColor:COLORS[k],borderRadius:3}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false}},y:{ticks:{callback:fmtKLocal}}}}};
+
+      if(isBySubcat) {
+        const subs = ch.subcats||[];
+        if(subs.length===0) return;
+        if(ch.type==="stack"||ch.type==="group") {
+          cfg={type:"bar",data:{labels:months.map(m=>m.slice(5)),datasets:subs.map(sub=>({label:sub,data:months.map(m=>getSubcatData(sub,m)),backgroundColor:subcatColor(sub),stack:ch.type==="stack"?"s":undefined,borderRadius:2}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmtLocal(c.raw)}`}}},scales:{x:{stacked:ch.type==="stack",ticks:{autoSkip:false}},y:{stacked:ch.type==="stack",ticks:{callback:fmtKLocal}}}}};
+        } else if(ch.type==="line") {
+          cfg={type:"line",data:{labels:months.map(m=>m.slice(5)),datasets:subs.map(sub=>({label:sub,data:months.map(m=>getSubcatData(sub,m)),borderColor:subcatColor(sub),backgroundColor:subcatColor(sub)+"22",fill:false,tension:0.35,pointRadius:4}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.dataset.label}: ${fmtLocal(c.raw)}`}}},scales:{x:{ticks:{autoSkip:false}},y:{ticks:{callback:fmtKLocal}}}}};
+        } else if(ch.type==="pie") {
+          const tots=subs.map(sub=>expenses.filter(e=>e.subcat===sub).reduce((s,e)=>s+e.amount,0));
+          const total=tots.reduce((a,b)=>a+b,0);
+          cfg={type:"doughnut",data:{labels:subs,datasets:[{data:tots,backgroundColor:subs.map(sub=>subcatColor(sub)),borderWidth:3,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${fmtLocal(c.raw)} (${Math.round(c.raw/(total||1)*100)}%)`}}}}};
+        }
+      } else {
+        const focos = ch.focos||Object.keys(categories);
+        if(ch.type==="stack") {
+          cfg={type:"bar",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),backgroundColor:COLORS[k],stack:"s",borderRadius:2}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{stacked:true,ticks:{autoSkip:false}},y:{stacked:true,ticks:{callback:fmtKLocal}}}}};
+        } else if(ch.type==="line") {
+          cfg={type:"line",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),borderColor:COLORS[k],backgroundColor:COLORS[k]+"22",fill:true,tension:0.35,pointRadius:4}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false}},y:{ticks:{callback:fmtKLocal}}}}};
+        } else if(ch.type==="pie") {
+          const tots=focos.map(k=>expenses.filter(e=>e.category===k).reduce((s,e)=>s+e.amount,0));
+          const total=tots.reduce((a,b)=>a+b,0);
+          cfg={type:"doughnut",data:{labels:focos.map(k=>LABELS[k]),datasets:[{data:tots,backgroundColor:focos.map(k=>COLORS[k]),borderWidth:3,borderColor:"#fff"}]},options:{responsive:true,maintainAspectRatio:false,cutout:"55%",plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>`${c.label}: ${fmtLocal(c.raw)} (${Math.round(c.raw/(total||1)*100)}%)`}}}}};
+        } else if(ch.type==="group") {
+          cfg={type:"bar",data:{labels:months.map(m=>m.slice(5)),datasets:focos.map(k=>({label:LABELS[k],data:months.map(m=>getData(k,m)),backgroundColor:COLORS[k],borderRadius:3}))},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{autoSkip:false}},y:{ticks:{callback:fmtKLocal}}}}};
+        }
       }
-      if(cfg) chartInstances.current[ch.id] = new window.Chart(canvas, cfg);
+      if(cfg) chartInstances.current[ch.id]=new window.Chart(canvas,cfg);
     });
-    return ()=>{ Object.values(chartInstances.current).forEach(c=>c&&c.destroy()); chartInstances.current={}; };
+    return()=>{ Object.values(chartInstances.current).forEach(c=>c&&c.destroy()); chartInstances.current={}; };
   },[charts,expenses]);
 
-  const addChart = (type) => { idCount.current++; setCharts(p=>[...p,{id:"ch"+idCount.current,type,focos:Object.keys(categories)}]); };
-  const removeChart = (id) => { if(chartInstances.current[id]){chartInstances.current[id].destroy();delete chartInstances.current[id];} setCharts(p=>p.filter(c=>c.id!==id)); };
-  const toggleFoco = (id, foco) => { setCharts(p=>p.map(c=>{ if(c.id!==id) return c; const focos=c.focos.includes(foco)?c.focos.filter(f=>f!==foco):[...c.focos,foco]; return {...c,focos:focos.length?focos:Object.keys(categories)}; })); };
+  const addChart=(type)=>{ idCount.current++; setCharts(p=>[...p,{id:"ch"+idCount.current,type,mode:"foco",focos:Object.keys(categories),activeFoco:Object.keys(categories)[0],subcats:[]}]); };
+  const removeChart=(id)=>{ if(chartInstances.current[id]){chartInstances.current[id].destroy();delete chartInstances.current[id];} setCharts(p=>p.filter(c=>c.id!==id)); };
+  const toggleFoco=(id,foco)=>{ setCharts(p=>p.map(c=>{ if(c.id!==id) return c; const focos=c.focos.includes(foco)?c.focos.filter(f=>f!==foco):[...c.focos,foco]; return{...c,focos:focos.length?focos:Object.keys(categories)}; })); };
+  const setMode=(id,mode)=>setCharts(p=>p.map(c=>c.id!==id?c:{...c,mode}));
+  const setActiveFoco=(id,foco)=>setCharts(p=>p.map(c=>c.id!==id?c:{...c,activeFoco:foco,subcats:[]}));
+  const toggleSubcat=(id,sub)=>{ setCharts(p=>p.map(c=>{ if(c.id!==id) return c; const subcats=c.subcats.includes(sub)?c.subcats.filter(s=>s!==sub):[...c.subcats,sub]; return{...c,subcats}; })); };
+  const selectAllSubcats=(id,foco)=>{ const subs=allSubcatsByFoco[foco]||[]; setCharts(p=>p.map(c=>c.id!==id?c:{...c,subcats:subs})); };
+  const clearSubcats=(id)=>setCharts(p=>p.map(c=>c.id!==id?c:{...c,subcats:[]}));
 
   return (
     <div>
@@ -212,39 +253,112 @@ function MisGraficos({ expenses, categories }) {
           ))}
         </div>
       </div>
+
       {charts.length===0&&(
         <div style={{textAlign:"center",padding:"3rem",color:"#999",fontSize:13,border:"0.5px dashed #ddd",borderRadius:12}}>
           Hacé clic en un botón para agregar un gráfico
         </div>
       )}
+
       <div style={{display:"flex",flexDirection:"column",gap:14}}>
-        {charts.map(ch=>(
-          <div key={ch.id} style={{background:"#fff",border:"1px solid #eee",borderRadius:12,padding:"1.25rem"}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10,flexWrap:"wrap",gap:8}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+        {charts.map(ch=>{
+          const activeSubs = allSubcatsByFoco[ch.activeFoco]||[];
+          const displayItems = ch.mode==="subcat" ? ch.subcats : ch.focos;
+
+          return(
+            <div key={ch.id} style={{background:"#fff",border:"1px solid #eee",borderRadius:12,padding:"1.25rem"}}>
+
+              {/* Header */}
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,gap:8}}>
                 <span style={{fontSize:13,fontWeight:500}}>{TIPOS[ch.type]}</span>
-                <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+                    {displayItems.map(item=>{
+                      const color=ch.mode==="subcat"?subcatColor(item):COLORS[item];
+                      const label=ch.mode==="subcat"?item:LABELS[item];
+                      return(
+                        <span key={item} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#666"}}>
+                          <span style={{width:9,height:9,borderRadius:2,background:color,display:"inline-block"}}></span>{label}
+                        </span>
+                      );
+                    })}
+                  </div>
+                  <button onClick={()=>removeChart(ch.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#999",fontSize:16,padding:"0 4px"}} aria-label="Eliminar">✕</button>
+                </div>
+              </div>
+
+              {/* Selector de modo */}
+              <div style={{display:"flex",gap:6,marginBottom:10}}>
+                <button onClick={()=>setMode(ch.id,"foco")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"0.5px solid "+(ch.mode==="foco"?"#3266ad":"#ddd"),background:ch.mode==="foco"?"#3266ad22":"#f5f5f5",color:ch.mode==="foco"?"#3266ad":"#666",cursor:"pointer",fontWeight:ch.mode==="foco"?500:400}}>
+                  Por foco
+                </button>
+                <button onClick={()=>setMode(ch.id,"subcat")} style={{fontSize:11,padding:"4px 12px",borderRadius:20,border:"0.5px solid "+(ch.mode==="subcat"?"#3266ad":"#ddd"),background:ch.mode==="subcat"?"#3266ad22":"#f5f5f5",color:ch.mode==="subcat"?"#3266ad":"#666",cursor:"pointer",fontWeight:ch.mode==="subcat"?500:400}}>
+                  Por concepto
+                </button>
+              </div>
+
+              {/* Filtros modo FOCO */}
+              {ch.mode==="foco"&&(
+                <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:10}}>
                   {Object.entries(categories).map(([k,v])=>(
-                    <button key={k} onClick={()=>toggleFoco(ch.id,k)} style={{fontSize:11,padding:"3px 10px",borderRadius:20,border:"0.5px solid "+(ch.focos.includes(k)?v.color:"#ddd"),background:ch.focos.includes(k)?v.color+"22":"#f5f5f5",color:ch.focos.includes(k)?v.color:"#666",cursor:"pointer"}}>{v.label}</button>
+                    <button key={k} onClick={()=>toggleFoco(ch.id,k)} style={{fontSize:11,padding:"3px 10px",borderRadius:20,border:"0.5px solid "+(ch.focos.includes(k)?v.color:"#ddd"),background:ch.focos.includes(k)?v.color+"22":"#f5f5f5",color:ch.focos.includes(k)?v.color:"#666",cursor:"pointer"}}>
+                      {v.icon} {v.label}
+                    </button>
                   ))}
                 </div>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <div style={{display:"flex",gap:10}}>
-                  {ch.focos.map(k=>(
-                    <span key={k} style={{display:"flex",alignItems:"center",gap:4,fontSize:11,color:"#666"}}>
-                      <span style={{width:9,height:9,borderRadius:2,background:COLORS[k],display:"inline-block"}}></span>{LABELS[k]}
-                    </span>
-                  ))}
+              )}
+
+              {/* Filtros modo SUBCAT */}
+              {ch.mode==="subcat"&&(
+                <div style={{marginBottom:10}}>
+                  {/* Selector de foco */}
+                  <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
+                    {Object.entries(categories).map(([k,v])=>(
+                      <button key={k} onClick={()=>setActiveFoco(ch.id,k)} style={{fontSize:11,padding:"3px 10px",borderRadius:20,border:"0.5px solid "+(ch.activeFoco===k?v.color:"#ddd"),background:ch.activeFoco===k?v.color:"#f5f5f5",color:ch.activeFoco===k?"#fff":"#666",cursor:"pointer",fontWeight:ch.activeFoco===k?500:400}}>
+                        {v.icon} {v.label}
+                      </button>
+                    ))}
+                  </div>
+                  {/* Subcategorías */}
+                  {activeSubs.length>0?(
+                    <div>
+                      <div style={{display:"flex",gap:6,marginBottom:6,alignItems:"center"}}>
+                        <span style={{fontSize:11,color:"#999"}}>Conceptos:</span>
+                        <button onClick={()=>selectAllSubcats(ch.id,ch.activeFoco)} style={{fontSize:10,padding:"2px 8px",borderRadius:20,border:"0.5px solid #ddd",background:"#f0f4ff",color:"#3266ad",cursor:"pointer"}}>Todos</button>
+                        <button onClick={()=>clearSubcats(ch.id)} style={{fontSize:10,padding:"2px 8px",borderRadius:20,border:"0.5px solid #ddd",background:"#f5f5f5",color:"#999",cursor:"pointer"}}>Limpiar</button>
+                      </div>
+                      <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                        {activeSubs.map(sub=>{
+                          const sel=ch.subcats.includes(sub);
+                          const color=subcatColor(sub);
+                          return(
+                            <button key={sub} onClick={()=>toggleSubcat(ch.id,sub)} style={{fontSize:11,padding:"4px 11px",borderRadius:20,border:"0.5px solid "+(sel?color:"#ddd"),background:sel?color+"22":"#f5f5f5",color:sel?color:"#666",cursor:"pointer",fontWeight:sel?500:400}}>
+                              {sub}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {ch.subcats.length===0&&<p style={{fontSize:11,color:"#aaa",margin:"8px 0 0"}}>Seleccioná al menos un concepto para ver el gráfico</p>}
+                    </div>
+                  ):(
+                    <p style={{fontSize:11,color:"#aaa",margin:"4px 0 0"}}>No hay gastos cargados en este foco</p>
+                  )}
                 </div>
-                <button onClick={()=>removeChart(ch.id)} style={{background:"none",border:"none",cursor:"pointer",color:"#999",fontSize:16,padding:"0 4px"}} aria-label="Eliminar">✕</button>
+              )}
+
+              {/* Canvas */}
+              <div style={{position:"relative",height:200}}>
+                {ch.mode==="subcat"&&ch.subcats.length===0?(
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%",color:"#ccc",fontSize:13,border:"0.5px dashed #eee",borderRadius:8}}>
+                    Seleccioná conceptos para graficar
+                  </div>
+                ):(
+                  <canvas ref={el=>{chartRefs.current[ch.id]=el;}} role="img" aria-label={TIPOS[ch.type]}>Gráfico de gastos.</canvas>
+                )}
               </div>
             </div>
-            <div style={{position:"relative",height:200}}>
-              <canvas ref={el=>{ chartRefs.current[ch.id]=el; }} role="img" aria-label={TIPOS[ch.type]}>Gráfico de gastos.</canvas>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -457,8 +571,6 @@ function Login() {
     </div>
   );
 }
-
-import React from "react";
 
 export default function App() {
   const [session,setSession]=useState(null); const [loadingSession,setLoadingSession]=useState(true);
