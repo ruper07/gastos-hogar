@@ -60,7 +60,7 @@ function ExportButtons({ onCSV, onPDF }) {
 function ExpandableTable({ expenses }) {
   const [expanded, setExpanded] = useState({});
   if (!expenses.length) return <p style={{fontSize:13,color:"#999"}}>Sin datos.</p>;
-  const months = [...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().reverse().slice(0,6);
+  const months = [...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().slice(-6);
   const toggle = (k) => setExpanded(p=>({...p,[k]:!p[k]}));
   const sumCat = (cat,m) => expenses.filter(e=>e.category===cat&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
   const sumSub = (sub,m) => expenses.filter(e=>e.subcat===sub&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
@@ -602,7 +602,7 @@ export default function App() {
   const filtered=expenses.filter(e=>{ const mc=filterCat==="all"||e.category===filterCat; const mm=filterMonth==="all"||e.date?.startsWith(new Date().getFullYear()+"-"+String(filterMonth).padStart(2,"0")); const mp=filterPagado==="all"||(filterPagado==="pagado"&&e.pagado)||(filterPagado==="pendiente"&&!e.pagado); const ms=filterSubcat==="all"||e.subcat===filterSubcat; return mc&&mm&&mp&&ms; });
   const exportGastosCSV=()=>{ const rows=[["ID","Foco","Subcategoría","Descripción","Monto","Fecha","Vencimiento","Medio de Pago","Estado","Recurrente"]]; filtered.forEach(e=>rows.push([e.id,categories[e.category]?.label,e.subcat,e.desc,fmtRaw(e.amount),e.date,e.dueDate,e.medio,e.pagado?"Pagado":"Pendiente",e.recurring?"Sí":"No"])); exportCSV(rows,"gastos_hogar"); };
   const exportGastosPDF=async()=>{ await exportPDF("Listado de Gastos","gastos_hogar","section-gastos"); };
-  const exportAnalisisCSV=()=>{ const months=[...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().reverse().slice(0,6); const rows=[["Foco",...months]]; Object.entries(categories).forEach(([k,v])=>{ const rowTotal=months.reduce((s,m)=>s+expenses.filter(e=>e.category===k&&e.date?.startsWith(m)).reduce((a,b)=>a+b.amount,0),0); if(rowTotal) rows.push([v.label,...months.map(m=>fmtRaw(expenses.filter(e=>e.category===k&&e.date?.startsWith(m)).reduce((a,b)=>a+b.amount,0)))]); }); exportCSV(rows,"analisis_hogar"); };
+  const exportAnalisisCSV=()=>{ const months=[...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().slice(-6); const rows=[["Foco",...months]]; Object.entries(categories).forEach(([k,v])=>{ const rowTotal=months.reduce((s,m)=>s+expenses.filter(e=>e.category===k&&e.date?.startsWith(m)).reduce((a,b)=>a+b.amount,0),0); if(rowTotal) rows.push([v.label,...months.map(m=>fmtRaw(expenses.filter(e=>e.category===k&&e.date?.startsWith(m)).reduce((a,b)=>a+b.amount,0)))]); }); exportCSV(rows,"analisis_hogar"); };
   const exportAnalisisPDF=async()=>{ await exportPDF("Análisis de Gastos","analisis_hogar","section-analisis"); };
   const getDueDates=()=>{ const result={}; expenses.forEach(e=>{ const d=e.dueDate||e.date; if(!d) return; const eYear=parseInt(d.slice(0,4)),eMonth=parseInt(d.slice(5,7))-1; if(eYear!==calYear||eMonth!==calMonth) return; if(!result[d]) result[d]=[]; result[d].push(e); }); return result; };
   const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
