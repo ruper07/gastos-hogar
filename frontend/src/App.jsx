@@ -98,7 +98,7 @@ function ExpandableTable({ expenses }) {
   const grandTotalPeriod = (p) => expenses.filter(e=>p.months.includes(e.date?.slice(0,7))).reduce((s,e)=>s+e.amount,0);
 
   const periodButtons = [
-    ["2m","2 meses"],["6m","6 meses"],["12m","12 meses"],
+    ["6m","6 meses"],["12m","12 meses"],
     ["q","Trimestre"],["s","Semestre"],["y","Año"]
   ];
 
@@ -118,7 +118,7 @@ function ExpandableTable({ expenses }) {
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
           <thead>
             <tr style={{borderBottom:"1px solid #eee"}}>
-              <th style={{textAlign:"left",padding:"6px 10px",fontWeight:500,color:"#666",minWidth:140}}>Foco / Concepto</th>
+              <th style={{textAlign:"left",padding:"6px 10px",fontWeight:500,color:"#666",whiteSpace:"nowrap"}}>Foco / Concepto</th>
               {periods.map(p=><th key={p.key} style={{textAlign:"right",padding:"6px 10px",fontWeight:500,color:"#666",whiteSpace:"nowrap"}}>{p.label}</th>)}
             </tr>
           </thead>
@@ -130,7 +130,7 @@ function ExpandableTable({ expenses }) {
               return (
                 <React.Fragment key={k}>
                   <tr onClick={()=>toggle(k)} style={{cursor:"pointer",borderBottom:"1px solid #f0f0f0",background:expanded[k]?"#f9f9f9":"#fff"}}>
-                    <td style={{padding:"8px 10px",fontWeight:500}}>
+                    <td style={{padding:"8px 10px",fontWeight:500,whiteSpace:"nowrap"}}>
                       <span style={{fontSize:15,marginRight:6}}>{v.icon}</span>
                       <span style={{color:v.color}}>{v.label}</span>
                       <span style={{marginLeft:6,fontSize:11,color:"#999"}}>{expanded[k]?"▲":"▼"}</span>
@@ -142,7 +142,7 @@ function ExpandableTable({ expenses }) {
                     if(!hasData) return null;
                     return(
                       <tr key={sub} style={{borderBottom:"1px solid #f5f5f5",background:"#fafafa"}}>
-                        <td style={{padding:"5px 10px 5px 32px",color:"#666",borderLeft:"2px solid "+v.color+"44",fontSize:12}}>{sub}</td>
+                        <td style={{padding:"5px 10px 5px 32px",color:"#666",borderLeft:"2px solid "+v.color+"44",fontSize:12,whiteSpace:"nowrap"}}>{sub}</td>
                         {periods.map(p=>{ const tot=sumSubPeriod(sub,p); return <td key={p.key} style={{textAlign:"right",padding:"5px 10px",fontSize:12,color:tot>0?"#1a1a1a":"#ddd"}}>{tot>0?fmt(tot):"—"}</td>; })}
                       </tr>
                     );
@@ -413,7 +413,59 @@ function MisGraficos({ expenses, categories }) {
   );
 }
 
-function Dashboard({ expenses, categories }) {
+function FocoDistribution({ expenses, categories }) {
+  const [expanded, setExpanded] = useState({});
+  const toggle = (k) => setExpanded(p=>({...p,[k]:!p[k]}));
+
+  if (expenses.length===0) return <p style={{fontSize:13,color:"#999"}}>Sin datos.</p>;
+  const total = expenses.reduce((s,e)=>s+e.amount,0);
+
+  return (
+    <div>
+      {Object.entries(categories).map(([k,v])=>{
+        const focoExpenses = expenses.filter(e=>e.category===k);
+        const tot = focoExpenses.reduce((s,e)=>s+e.amount,0);
+        if (!tot) return null;
+        const pct = total>0?Math.round((tot/total)*100):0;
+        const isOpen = !!expanded[k];
+
+        const bySub = {};
+        focoExpenses.forEach(e=>{ bySub[e.subcat]=(bySub[e.subcat]||0)+e.amount; });
+        const subEntries = Object.entries(bySub).sort(([,a],[,b])=>b-a);
+
+        return (
+          <div key={k} style={{marginBottom:14}}>
+            <div onClick={()=>toggle(k)} style={{cursor:"pointer"}}>
+              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
+                <span>{v.icon} {v.label} <span style={{fontSize:10,color:"#999",marginLeft:2}}>{isOpen?"▲":"▼"}</span></span>
+                <span style={{fontWeight:500}}>{fmt(tot)} ({pct}%)</span>
+              </div>
+              <div style={{height:8,background:"#f0f0f0",borderRadius:4}}><div style={{height:"100%",width:pct+"%",background:v.color,borderRadius:4}}></div></div>
+            </div>
+            {isOpen && (
+              <div style={{marginTop:10,marginLeft:8,paddingLeft:10,borderLeft:"2px solid "+v.color+"33"}}>
+                {subEntries.map(([sub,amt])=>{
+                  const subPct = tot>0?Math.round((amt/tot)*100):0;
+                  return (
+                    <div key={sub} style={{marginBottom:8}}>
+                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3,color:"#444"}}>
+                        <span>{sub}</span>
+                        <span>{fmt(amt)} <span style={{color:"#999"}}>({subPct}%)</span></span>
+                      </div>
+                      <div style={{height:5,background:"#f0f0f0",borderRadius:3}}><div style={{height:"100%",width:subPct+"%",background:v.color+"99",borderRadius:3}}></div></div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
   const [dashTab, setDashTab] = useState("resumen");
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth()+1));
   const [selectedYear] = useState(new Date().getFullYear());
@@ -817,17 +869,9 @@ export default function App() {
           </div>
           <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
             <div style={{background:"#fff",border:"1px solid #eee",borderRadius:12,padding:"1.25rem"}}>
-              <h3 style={{margin:"0 0 1rem",fontSize:15,fontWeight:500}}>Distribución por foco</h3>
-              {expenses.length===0?<p style={{fontSize:13,color:"#999"}}>Sin datos.</p>
-              :Object.entries(categories).map(([k,v])=>{
-                const tot=expenses.filter(e=>e.category===k).reduce((s,e)=>s+e.amount,0);
-                const total=expenses.reduce((s,e)=>s+e.amount,0);
-                const pct=total>0?Math.round((tot/total)*100):0;
-                return(<div key={k} style={{marginBottom:14}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}><span>{v.icon} {v.label}</span><span style={{fontWeight:500}}>{fmt(tot)} ({pct}%)</span></div>
-                  <div style={{height:8,background:"#f0f0f0",borderRadius:4}}><div style={{height:"100%",width:pct+"%",background:v.color,borderRadius:4}}></div></div>
-                </div>);
-              })}
+              <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:500}}>Distribución por foco</h3>
+              <p style={{fontSize:12,color:"#999",margin:"0 0 1rem"}}>Hacé clic en un foco para ver el detalle por concepto</p>
+              <FocoDistribution expenses={expenses} categories={categories}/>
             </div>
             <div style={{background:"#fff",border:"1px solid #eee",borderRadius:12,padding:"1.25rem"}}>
               <h3 style={{margin:"0 0 4px",fontSize:15,fontWeight:500}}>Resumen por mes</h3>
