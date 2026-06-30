@@ -59,56 +59,105 @@ function ExportButtons({ onCSV, onPDF }) {
 
 function ExpandableTable({ expenses }) {
   const [expanded, setExpanded] = useState({});
+  const [periodMode, setPeriodMode] = useState("6m"); // "2m" | "6m" | "12m" | "q" | "s" | "y"
+  const [year, setYear] = useState(new Date().getFullYear());
+
   if (!expenses.length) return <p style={{fontSize:13,color:"#999"}}>Sin datos.</p>;
-  const months = [...new Set(expenses.map(e=>e.date?.slice(0,7)).filter(Boolean))].sort().slice(-6);
+
   const toggle = (k) => setExpanded(p=>({...p,[k]:!p[k]}));
-  const sumCat = (cat,m) => expenses.filter(e=>e.category===cat&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
-  const sumSub = (sub,m) => expenses.filter(e=>e.subcat===sub&&e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
-  const grandTotal = (m) => expenses.filter(e=>e.date?.startsWith(m)).reduce((s,e)=>s+e.amount,0);
+
+  // Años disponibles según los datos
+  const availableYears = [...new Set(expenses.map(e=>e.date?.slice(0,4)).filter(Boolean))].sort();
+
+  // ---- Construcción de "periods": cada period tiene {key, label, months:[...]} ----
+  let periods = [];
+  if (periodMode === "2m" || periodMode === "6m" || periodMode === "12m") {
+    const n = periodMode === "2m" ? 2 : periodMode === "6m" ? 6 : 12;
+    for (let i = 0; i < n; i++) {
+      const m = String(i+1).padStart(2,"0");
+      const key = year + "-" + m;
+      periods.push({ key, label: MONTHS_FULL[i].slice(0,3), months: [key] });
+    }
+  } else if (periodMode === "q") {
+    for (let q = 0; q < 4; q++) {
+      const months = [1,2,3].map(off => year + "-" + String(q*3+off).padStart(2,"0"));
+      periods.push({ key: "Q"+(q+1), label: "Q"+(q+1)+" "+year, months });
+    }
+  } else if (periodMode === "s") {
+    for (let s = 0; s < 2; s++) {
+      const months = Array.from({length:6},(_,i)=> year + "-" + String(s*6+i+1).padStart(2,"0"));
+      periods.push({ key: "S"+(s+1), label: "Semestre "+(s+1)+" "+year, months });
+    }
+  } else if (periodMode === "y") {
+    const months = Array.from({length:12},(_,i)=> year + "-" + String(i+1).padStart(2,"0"));
+    periods.push({ key: "Y", label: "Año "+year, months });
+  }
+
+  const sumCatPeriod = (cat,p) => expenses.filter(e=>e.category===cat&&p.months.includes(e.date?.slice(0,7))).reduce((s,e)=>s+e.amount,0);
+  const sumSubPeriod = (sub,p) => expenses.filter(e=>e.subcat===sub&&p.months.includes(e.date?.slice(0,7))).reduce((s,e)=>s+e.amount,0);
+  const grandTotalPeriod = (p) => expenses.filter(e=>p.months.includes(e.date?.slice(0,7))).reduce((s,e)=>s+e.amount,0);
+
+  const periodButtons = [
+    ["2m","2 meses"],["6m","6 meses"],["12m","12 meses"],
+    ["q","Trimestre"],["s","Semestre"],["y","Año"]
+  ];
+
   return (
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
-        <thead>
-          <tr style={{borderBottom:"1px solid #eee"}}>
-            <th style={{textAlign:"left",padding:"6px 10px",fontWeight:500,color:"#666",minWidth:140}}>Foco / Concepto</th>
-            {months.map(m=><th key={m} style={{textAlign:"right",padding:"6px 10px",fontWeight:500,color:"#666",whiteSpace:"nowrap"}}>{m.slice(5)}/{m.slice(2,4)}</th>)}
-          </tr>
-        </thead>
-        <tbody>
-          {Object.entries(DEFAULT_CATEGORIES).map(([k,v])=>{
-            const subcats=[...new Set(expenses.filter(e=>e.category===k).map(e=>e.subcat))].sort();
-            const rowTotal=months.reduce((s,m)=>s+sumCat(k,m),0);
-            if(!rowTotal) return null;
-            return (
-              <React.Fragment key={k}>
-                <tr onClick={()=>toggle(k)} style={{cursor:"pointer",borderBottom:"1px solid #f0f0f0",background:expanded[k]?"#f9f9f9":"#fff"}}>
-                  <td style={{padding:"8px 10px",fontWeight:500}}>
-                    <span style={{fontSize:15,marginRight:6}}>{v.icon}</span>
-                    <span style={{color:v.color}}>{v.label}</span>
-                    <span style={{marginLeft:6,fontSize:11,color:"#999"}}>{expanded[k]?"▲":"▼"}</span>
-                  </td>
-                  {months.map(m=>{ const tot=sumCat(k,m); return <td key={m} style={{textAlign:"right",padding:"8px 10px",fontWeight:500,color:tot>0?"#1a1a1a":"#ccc"}}>{tot>0?fmt(tot):"—"}</td>; })}
-                </tr>
-                {expanded[k]&&subcats.map(sub=>{
-                  const hasData=months.some(m=>sumSub(sub,m)>0);
-                  if(!hasData) return null;
-                  return(
-                    <tr key={sub} style={{borderBottom:"1px solid #f5f5f5",background:"#fafafa"}}>
-                      <td style={{padding:"5px 10px 5px 32px",color:"#666",borderLeft:"2px solid "+v.color+"44",fontSize:12}}>{sub}</td>
-                      {months.map(m=>{ const tot=sumSub(sub,m); return <td key={m} style={{textAlign:"right",padding:"5px 10px",fontSize:12,color:tot>0?"#1a1a1a":"#ddd"}}>{tot>0?fmt(tot):"—"}</td>; })}
-                    </tr>
-                  );
-                })}
-                {expanded[k]&&<tr><td colSpan={months.length+1} style={{padding:0,borderBottom:"1px solid #eee"}}></td></tr>}
-              </React.Fragment>
-            );
-          })}
-          <tr style={{borderTop:"1px solid #eee",fontWeight:500}}>
-            <td style={{padding:"8px 10px"}}>Total</td>
-            {months.map(m=><td key={m} style={{textAlign:"right",padding:"8px 10px",color:"#3266ad"}}>{fmt(grandTotal(m))}</td>)}
-          </tr>
-        </tbody>
-      </table>
+    <div>
+      <div style={{display:"flex",gap:8,alignItems:"center",marginBottom:10,flexWrap:"wrap"}}>
+        <select value={year} onChange={e=>setYear(parseInt(e.target.value))} style={{padding:"5px 10px",borderRadius:8,border:"1px solid #ddd",fontSize:12}}>
+          {(availableYears.length?availableYears:[String(year)]).map(y=><option key={y} value={y}>{y}</option>)}
+        </select>
+        <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+          {periodButtons.map(([v,l])=>(
+            <button key={v} onClick={()=>setPeriodMode(v)} style={{fontSize:11,padding:"4px 11px",borderRadius:20,border:"0.5px solid "+(periodMode===v?"#3266ad":"#ddd"),background:periodMode===v?"#3266ad22":"#f5f5f5",color:periodMode===v?"#3266ad":"#666",cursor:"pointer",fontWeight:periodMode===v?500:400}}>{l}</button>
+          ))}
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <thead>
+            <tr style={{borderBottom:"1px solid #eee"}}>
+              <th style={{textAlign:"left",padding:"6px 10px",fontWeight:500,color:"#666",minWidth:140}}>Foco / Concepto</th>
+              {periods.map(p=><th key={p.key} style={{textAlign:"right",padding:"6px 10px",fontWeight:500,color:"#666",whiteSpace:"nowrap"}}>{p.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(DEFAULT_CATEGORIES).map(([k,v])=>{
+              const subcats=[...new Set(expenses.filter(e=>e.category===k).map(e=>e.subcat))].sort();
+              const rowTotal=periods.reduce((s,p)=>s+sumCatPeriod(k,p),0);
+              if(!rowTotal) return null;
+              return (
+                <React.Fragment key={k}>
+                  <tr onClick={()=>toggle(k)} style={{cursor:"pointer",borderBottom:"1px solid #f0f0f0",background:expanded[k]?"#f9f9f9":"#fff"}}>
+                    <td style={{padding:"8px 10px",fontWeight:500}}>
+                      <span style={{fontSize:15,marginRight:6}}>{v.icon}</span>
+                      <span style={{color:v.color}}>{v.label}</span>
+                      <span style={{marginLeft:6,fontSize:11,color:"#999"}}>{expanded[k]?"▲":"▼"}</span>
+                    </td>
+                    {periods.map(p=>{ const tot=sumCatPeriod(k,p); return <td key={p.key} style={{textAlign:"right",padding:"8px 10px",fontWeight:500,color:tot>0?"#1a1a1a":"#ccc"}}>{tot>0?fmt(tot):"—"}</td>; })}
+                  </tr>
+                  {expanded[k]&&subcats.map(sub=>{
+                    const hasData=periods.some(p=>sumSubPeriod(sub,p)>0);
+                    if(!hasData) return null;
+                    return(
+                      <tr key={sub} style={{borderBottom:"1px solid #f5f5f5",background:"#fafafa"}}>
+                        <td style={{padding:"5px 10px 5px 32px",color:"#666",borderLeft:"2px solid "+v.color+"44",fontSize:12}}>{sub}</td>
+                        {periods.map(p=>{ const tot=sumSubPeriod(sub,p); return <td key={p.key} style={{textAlign:"right",padding:"5px 10px",fontSize:12,color:tot>0?"#1a1a1a":"#ddd"}}>{tot>0?fmt(tot):"—"}</td>; })}
+                      </tr>
+                    );
+                  })}
+                  {expanded[k]&&<tr><td colSpan={periods.length+1} style={{padding:0,borderBottom:"1px solid #eee"}}></td></tr>}
+                </React.Fragment>
+              );
+            })}
+            <tr style={{borderTop:"1px solid #eee",fontWeight:500}}>
+              <td style={{padding:"8px 10px"}}>Total</td>
+              {periods.map(p=><td key={p.key} style={{textAlign:"right",padding:"8px 10px",color:"#3266ad"}}>{fmt(grandTotalPeriod(p))}</td>)}
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
