@@ -465,7 +465,7 @@ function FocoDistribution({ expenses, categories }) {
   );
 }
 
-
+function Dashboard({ expenses, categories }) {
   const [dashTab, setDashTab] = useState("resumen");
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth()+1));
   const [selectedYear] = useState(new Date().getFullYear());
