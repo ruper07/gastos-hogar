@@ -436,9 +436,9 @@ function FocoDistribution({ expenses, categories }) {
         return (
           <div key={k} style={{marginBottom:14}}>
             <div onClick={()=>toggle(k)} style={{cursor:"pointer"}}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:13,marginBottom:4}}>
-                <span>{v.icon} {v.label} <span style={{fontSize:10,color:"#999",marginLeft:2}}>{isOpen?"▲":"▼"}</span></span>
-                <span style={{fontWeight:500}}>{fmt(tot)} ({pct}%)</span>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:"2px 8px",fontSize:13,marginBottom:4}}>
+                <span style={{whiteSpace:"nowrap"}}>{v.icon} {v.label} <span style={{fontSize:10,color:"#999",marginLeft:2}}>{isOpen?"▲":"▼"}</span></span>
+                <span style={{fontWeight:500,whiteSpace:"nowrap"}}>{fmt(tot)} <span style={{color:"#999",fontWeight:400}}>({pct}%)</span></span>
               </div>
               <div style={{height:8,background:"#f0f0f0",borderRadius:4}}><div style={{height:"100%",width:pct+"%",background:v.color,borderRadius:4}}></div></div>
             </div>
@@ -448,9 +448,9 @@ function FocoDistribution({ expenses, categories }) {
                   const subPct = tot>0?Math.round((amt/tot)*100):0;
                   return (
                     <div key={sub} style={{marginBottom:8}}>
-                      <div style={{display:"flex",justifyContent:"space-between",fontSize:12,marginBottom:3,color:"#444"}}>
+                      <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",flexWrap:"wrap",gap:"2px 8px",fontSize:12,marginBottom:3,color:"#444"}}>
                         <span>{sub}</span>
-                        <span>{fmt(amt)} <span style={{color:"#999"}}>({subPct}%)</span></span>
+                        <span style={{whiteSpace:"nowrap"}}>{fmt(amt)} <span style={{color:"#999"}}>({subPct}%)</span></span>
                       </div>
                       <div style={{height:5,background:"#f0f0f0",borderRadius:3}}><div style={{height:"100%",width:subPct+"%",background:v.color+"99",borderRadius:3}}></div></div>
                     </div>
