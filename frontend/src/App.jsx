@@ -4,7 +4,7 @@ import { supabase } from "./supabase.js";
 const DEFAULT_CATEGORIES = {
   hogar: { label:"Hogar", icon:"🏠", color:"#3266ad", subcats:["Luz","Gas","Agua","Internet","TV Streaming","Impuesto Municipal","Impuesto Provincial","Seguro Hogar","Vigilancia","Monitoreo de Puerta","Otros"] },
   autos: { label:"Autos", icon:"🚗", color:"#d85a30", subcats:["VW Polo - Seguro","VW Polo - Combustible","VW Polo - Mecánico","VW Polo - Service","VW Gol - Seguro","VW Gol - Combustible","VW Gol - Mecánico","VW Gol - Service"] },
-  hijos: { label:"Hijos", icon:"🧑‍🧑‍🧒‍🧒", color:"#1d9e75", subcats:["Colegio","Actividades","Otros"] }
+  hijos: { label:"Hijos", icon:"🧑‍🧑‍🧒‍🧒", color:"#1d9e75", subcats:["Colegio","Actividades","Otros"] },
   mascota: { label:"Mascota (Enzo)", icon:"🐶", color:"#e8a020", subcats:["Veterinario","Alimento","Peluquería","Medicamentos","Accesorios","Otros"] }
 };
 const MEDIOS = ["Débito automático","Transferencia","Efectivo","Tarjeta de crédito"];
